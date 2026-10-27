@@ -1,0 +1,14 @@
+# Golden queries for offline evaluation.
+#
+# Intended shape:
+#
+# - query: "milk"
+#   dark_store_id: "DS001"
+#   expected_top:
+#     - product_id: "P1234"
+#     - product_id: "P5678"
+#
+# - query: "atta 5kg"
+#   dark_store_id: "DS002"
+#   expected_top:
+#     - product_id: "P9012"
