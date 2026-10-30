@@ -3,7 +3,7 @@
 
 Reads data/search_log.jsonl and produces a reviewable synonym candidate file
 at logs/synonym_candidates.jsonl.  Does NOT modify raw data files or
-src/clean.py outputs.  Candidates are for review only — nothing is applied
+src/clean.py outputs.  Candidates are for review only �?" nothing is applied
 to production search behavior.
 
 Evidence model (per safety constraints):
@@ -12,7 +12,6 @@ Evidence model (per safety constraints):
   * Strongest evidence: same-session query transition where the first query
     returned 0 results and the second had results > 0.
 """
-
 from __future__ import annotations
 
 import csv
@@ -101,8 +100,10 @@ def edit_distance(s1: str, s2: str) -> int:
 def extract_session_transitions(records: list[dict[str, Any]]) -> Counter:
     """Count same-session consecutive query transitions.
 
-    Only transitions where the first query had 0 results and the second had
-    results > 0 are considered strong synonym evidence.
+    Only transitions where the actual first record has results_count == 0 and
+    the actual next record has results_count > 0 are considered strong synonym
+    evidence.  The condition is checked on a per-transition basis from the
+    raw records, not inferred from query-level aggregates.
     """
     session_queries: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in records:
@@ -116,7 +117,11 @@ def extract_session_transitions(records: list[dict[str, Any]]) -> Counter:
             q2 = recs_sorted[i + 1]
             if q1["query"] == q2["query"]:
                 continue
-            transitions[(q1["query"], q2["query"])] += 1
+            # Zero-to-nonzero check on the actual records, not aggregates
+            q1_zero = q1.get("results_count", 0) == 0
+            q2_nonzero = q2.get("results_count", 0) > 0
+            if q1_zero and q2_nonzero:
+                transitions[(q1["query"], q2["query"])] += 1
     return transitions
 
 
@@ -165,7 +170,7 @@ def find_catalog_matches(
       * All query tokens appear in the product name (token inclusion), OR
       * Edit distance between full strings <= max_distance (typo variants).
     A single shared token (e.g. 'wash' in 'dish wash' vs 'face wash') is
-    NOT sufficient — that would create false positives.
+    NOT sufficient �?" that would create false positives.
 
     For single-token queries that share no token with any product (e.g.
     'panner' vs 'Paneer 200g'), we fall back to comparing against individual
@@ -309,12 +314,13 @@ def generate_candidates(
 
     # --- 1. Strong evidence: same-session transitions ---
     # A user searches X (0 results), then searches Y (results > 0) in the same
-    # session. If the user engages with Y's search results (click/add_to_cart
-    # with source="search"), that is strong evidence of synonymy on its own --
-    # no token overlap is required (covers transliteration pairs like Telugu
-    # 'venna' -> English 'butter'). Without engagement, we require some
-    # lexical/catalog relatedness to avoid false positives from users who were
-    # simply browsing unrelated items.
+    # session.  The zero-to-nonzero condition is checked per-transition from the
+    # actual records (via extract_session_transitions).  If the user engages with
+    # Y's search results (click/add_to_cart with source="search"), that is strong
+    # evidence of synonymy on its own -- no token overlap is required (covers
+    # transliteration pairs like Telugu 'venna' -> English 'butter').  Without
+    # engagement, we require some lexical/catalog relatedness to avoid false
+    # positives from users who were simply browsing unrelated items.
     for (q1, q2), count in transitions.most_common():
         q1_stats = query_stats.get(q1, {})
         q2_stats = query_stats.get(q2, {})

@@ -1,24 +1,56 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Pytest & coverage caches
+.pytest_cache/
+tests/.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments & packaging
+.venv/
+env/
+venv/
 *.egg-info/
 dist/
 build/
-*.egg
 
-# Virtual environment
-.venv/
-
-# Testing
-.pytest_cache/
-
-# IDEs
-.idea/
+# IDE & Editor temporary files
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# OS
+# OS artifacts
 .DS_Store
+Thumbs.db
 
-# Project output
+# Backup and temporary text/plan files
+*.bak
+*.tmp
+phase_4_plan.txt
+pytest_output.txt
+test_output.txt
+
+# Root-level scratch debug/repair scripts (anchored: does NOT affect tests/ or src/)
+/fix_*.py
+/test_actual.py
+/test_batch.py
+/test_chars.py
+/test_cli_*.py
+/test_high_*.py
+/test_import.py
+/test_json*.py
+/test_run_*.py
+/test_synonym_*.py
+/verify_*.py
+
+# Generated pipeline outputs & test runs (preserves raw catalog, inventory, search_log)
 results.jsonl
+logs/*.jsonl
+data/clean_catalog.jsonl
+data/batch_results.jsonl
+data/queries.txt

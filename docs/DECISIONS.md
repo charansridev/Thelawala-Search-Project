@@ -1,5 +1,0 @@
-# Decision Log
-
-| # | Decision | Why |
-|---|----------|-----|
-|   |          |     |

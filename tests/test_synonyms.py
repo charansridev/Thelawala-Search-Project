@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / ".." / "src"))
 
 from src.synonyms import (
     HIGH,
@@ -112,9 +112,21 @@ def test_extract_session_transitions_basic():
         {"session_id": "s2", "query": "y", "results_count": 0, "ts": "2026-01-01T00:01:00+05:30"},
     ]
     transitions = extract_session_transitions(records)
-    assert transitions[("a", "b")] == 1
-    assert transitions[("b", "c")] == 1
-    assert transitions[("x", "y")] == 1
+    # Only zero-to-nonzero transitions are counted
+    assert transitions[("a", "b")] == 1  # 0 -> non-zero
+    assert transitions[("b", "c")] == 0  # non-zero -> non-zero, excluded
+    assert transitions[("x", "y")] == 0  # zero -> zero, excluded
+
+
+def test_extract_session_transitions_excludes_nonzero_to_nonzero():
+    """Unrelated non-zero-to-nonzero transitions are excluded per the new rule."""
+    records = [
+        {"session_id": "s1", "query": "apple", "results_count": 3, "ts": "2026-01-01T00:00:00+05:30"},
+        {"session_id": "s1", "query": "banana", "results_count": 5, "ts": "2026-01-01T00:01:00+05:30"},
+    ]
+    transitions = extract_session_transitions(records)
+    # Both queries have results > 0, so this transition is excluded
+    assert transitions[("apple", "banana")] == 0
 
 
 def test_extract_session_transitions_skips_duplicates():
