@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thelawala Search</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <h1 class="title">Thelawala Search</h1>
+        <p class="subtitle">Fast, relevance-ranked product catalog search</p>
+      </header>
+
+      <main class="main-card">
+        <form id="search-form" class="search-form" novalidate>
+          <div class="input-group">
+            <input
+              type="text"
+              id="search-input"
+              class="search-input"
+              placeholder="Search for a product (e.g. milk, butter, palu)..."
+              autocomplete="off"
+              autofocus
+            />
+            <button
+              type="button"
+              id="clear-btn"
+              class="btn btn-clear"
+              title="Clear search"
+              aria-label="Clear search"
+            >
+              &times;
+            </button>
+            <button type="submit" id="search-btn" class="btn btn-primary">
+              Search
+            </button>
+          </div>
+          <div
+            id="validation-msg"
+            class="validation-msg"
+            role="alert"
+            aria-live="polite"
+          ></div>
+        </form>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="loading-state" aria-hidden="true">
+          <div class="spinner"></div>
+          <span>Searching catalog...</span>
+        </div>
+
+        <!-- Error State -->
+        <div
+          id="error-box"
+          class="error-box"
+          role="alert"
+          aria-live="assertive"
+        ></div>
+
+        <!-- Results Section -->
+        <section
+          id="results-section"
+          class="results-section"
+          aria-live="polite"
+        >
+          <div class="results-header">
+            <h2 class="results-heading">Search Results</h2>
+            <span id="results-count" class="results-count"></span>
+          </div>
+          <ol id="results-list" class="results-list"></ol>
+          <div id="no-results" class="no-results"></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>
+          Thelawala Search Engine &bull; BM25 Retrieval &bull; High-Confidence
+          Synonym Expansion
+        </p>
+      </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

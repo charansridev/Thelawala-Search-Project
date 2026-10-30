@@ -6,7 +6,7 @@ from pathlib import Path
 
 import json
 
-from src.ranking import BM25Ranker
+from src.ranking import BM25Ranker, load_sponsored_skus
 from src.synonyms import (
     load_catalog,
     build_catalog_index,
@@ -23,11 +23,102 @@ from src.synonyms import (
 
 
 def _build_ranker():
-    """Build and return a BM25Ranker with catalog and token index."""
+    """Build and return a BM25Ranker with catalog, token index, and sponsored SKUs."""
     products = load_catalog()
     catalog_index = build_catalog_index(products)
     ranker = BM25Ranker.from_products(products)
-    return products, catalog_index, ranker
+    sponsored_skus = load_sponsored_skus()
+    return products, catalog_index, ranker, sponsored_skus
+
+
+def _load_approved_synonyms_map() -> dict[str, list[str]]:
+    """Extract approved HIGH-confidence synonym mappings from search logs and catalog."""
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    SEARCH_LOG = BASE_DIR / "data" / "search_log.jsonl"
+    CATALOG_CSV = BASE_DIR / "data" / "catalog.csv"
+
+    records = load_search_log(SEARCH_LOG)
+    products_catalog = load_catalog(CATALOG_CSV)
+    candidates = generate_candidates(records, products_catalog)
+
+    approved: dict[str, list[str]] = {}
+    for c in candidates:
+        if (
+            c["confidence"] == HIGH
+            and c["evidence_type"] == "session_transition_zero_to_nonzero"
+            and c.get("query_zero_result", False)
+            and c.get("synonym", "").strip()
+            and c.get("catalog_supported", False)
+        ):
+            nq = normalize_query(c.get("query", "")).strip()
+            syn = normalize_query(c.get("synonym", "")).strip()
+            if nq and syn:
+                if nq not in approved:
+                    approved[nq] = []
+                if syn not in approved[nq]:
+                    approved[nq].append(syn)
+    return approved
+
+
+class SearchEngine:
+    """Reusable, thread-safe search engine caching catalog, ranker, and synonyms."""
+
+    def __init__(
+        self,
+        products: list[dict],
+        catalog_index: dict,
+        ranker: BM25Ranker,
+        sponsored_skus: frozenset[str],
+        approved_synonyms_map: dict[str, list[str]] | None = None,
+    ):
+        self.products = products
+        self.catalog_index = catalog_index
+        self.ranker = ranker
+        self.sponsored_skus = sponsored_skus
+        self.approved_synonyms_map = approved_synonyms_map or {}
+
+    @classmethod
+    def load(cls) -> "SearchEngine":
+        """Initialize and return a precomputed SearchEngine instance."""
+        products, catalog_index, ranker, sponsored_skus = _build_ranker()
+        approved_map = _load_approved_synonyms_map()
+        return cls(
+            products=products,
+            catalog_index=catalog_index,
+            ranker=ranker,
+            sponsored_skus=sponsored_skus,
+            approved_synonyms_map=approved_map,
+        )
+
+    def expand_query(self, query: str) -> str:
+        """Expand query using precomputed approved synonyms."""
+        norm_query = normalize_query(query).strip()
+        matching = self.approved_synonyms_map.get(norm_query)
+        if not matching:
+            return query
+        return f"{query} {' '.join(matching)}"
+
+    def search(self, query: str, top_n: int = 10) -> list[str]:
+        """Execute search with approved synonym expansion, BM25 ranking, and sponsored priority."""
+        expanded_query = self.expand_query(query)
+        ranked = self.ranker.search_with_phase2_filter(
+            expanded_query,
+            self.catalog_index,
+            top_n=top_n,
+            sponsored_skus=self.sponsored_skus,
+        )
+        return [sku_id for sku_id, _ in ranked]
+
+
+_DEFAULT_SEARCH_ENGINE: SearchEngine | None = None
+
+
+def get_search_engine() -> SearchEngine:
+    """Return the global cached SearchEngine instance, initializing it on first call."""
+    global _DEFAULT_SEARCH_ENGINE
+    if _DEFAULT_SEARCH_ENGINE is None:
+        _DEFAULT_SEARCH_ENGINE = SearchEngine.load()
+    return _DEFAULT_SEARCH_ENGINE
 
 
 def _expand_query_with_approved_synonyms(query: str) -> str:
@@ -101,7 +192,7 @@ def _expand_query_with_approved_synonyms(query: str) -> str:
     return f"{query} {' '.join(expanded_terms)}"
 
 
-def search_query(query: str, top_n: int = 10) -> List[str]:
+def search_query(query: str, top_n: int = 10, engine: SearchEngine | None = None) -> List[str]:
     """Search for products matching a query, returning up to top_n sku_ids ranked by relevance.
 
     Combines Phase 2 token-based filtering with BM25 reranking.
@@ -109,24 +200,30 @@ def search_query(query: str, top_n: int = 10) -> List[str]:
     are expanded into the query before retrieval; unreviewed candidates
     are never automatically activated.
 
-    The catalog, token index, and BM25 ranker are built once per invocation.
+    The catalog, token index, and BM25 ranker are built once per invocation
+    (or reused if an initialized engine is provided).
 
     Args:
         query: The search query string
         top_n: Number of results to return (default 10)
+        engine: Optional initialized SearchEngine instance for high-throughput reuse
 
     Returns:
         List of up to top_n sku_ids, sorted by relevance (best first).
         Returns empty list if no products match.
     """
-    products, catalog_index, ranker = _build_ranker()
+    if engine is not None:
+        return engine.search(query, top_n=top_n)
+
+    products, catalog_index, ranker, sponsored_skus = _build_ranker()
 
     # --- Step 1: Expand query with approved synonyms (HIGH confidence only) ---
     expanded_query = _expand_query_with_approved_synonyms(query)
 
     # Use Phase 2 filter + BM25 reranking on the expanded query
     ranked = ranker.search_with_phase2_filter(
-        expanded_query, catalog_index, top_n=top_n
+        expanded_query, catalog_index, top_n=top_n,
+        sponsored_skus=sponsored_skus,
     )
 
     # Return just the sku_ids, best first
@@ -147,7 +244,7 @@ def run_batch(input_path: str, output_path: str, top_n: int = 10) -> None:
         output_path: Path to write results.jsonl
         top_n: Number of results per query (default 10)
     """
-    products, catalog_index, ranker = _build_ranker()
+    products, catalog_index, ranker, sponsored_skus = _build_ranker()
 
     with open(input_path, "r", encoding="utf-8") as f:
         queries = [line.strip() for line in f if line.strip()]
@@ -155,7 +252,8 @@ def run_batch(input_path: str, output_path: str, top_n: int = 10) -> None:
     with open(output_path, "w", encoding="utf-8") as out:
         for query in queries:
             ranked = ranker.search_with_phase2_filter(
-                query, catalog_index, top_n=top_n
+                query, catalog_index, top_n=top_n,
+                sponsored_skus=sponsored_skus,
             )
             record = {"query": query, "results": [sku_id for sku_id, _ in ranked]}
             out.write(json.dumps(record) + "\n")
